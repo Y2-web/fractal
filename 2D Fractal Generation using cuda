@@ -1,0 +1,118 @@
+import numpy as np
+import torch
+import matplotlib.pyplot as plt
+import json
+
+def generer_ensemble_julia(largeur, hauteur, c_reel, c_imaginaire, xmin, xmax, ymin, ymax, iter_max):
+    x, y = np.meshgrid(np.linspace(xmin, xmax, largeur), np.linspace(ymin, ymax, hauteur))
+    z = torch.tensor(x + 1j * y, dtype=torch.complex64).cuda()
+    image = torch.zeros(z.shape, dtype=torch.float32).cuda()
+
+    for i in range(iter_max):
+        masque = torch.abs(z) < 1000
+        z[masque] = z[masque] * z[masque] + complex(c_reel, c_imaginaire)
+        image += (~masque).float()
+
+    return image.cpu().numpy()
+
+def afficher_julia(julia_img, taille=16, epsilon=.1, cmap='viridis'):
+    img = -np.log(julia_img + epsilon)
+    plt.figure(figsize=(taille, taille))
+    plt.imshow(img, cmap=cmap)
+    plt.axis('off')
+    plt.show()
+
+def obtenir_entree_utilisateur():
+    choix = input("Entrer 'm' pour définir manuellement les valeurs ou 'r' pour les randomiser : ").strip().lower()
+    if choix == 'm':
+        while True:
+            try:
+                c_reel = float(input("Entrez c_reel (entre -2 et 2) : "))
+                c_imaginaire = float(input("Entrez c_imaginaire (entre -2 et 2) : "))
+                if -2 <= c_reel <= 2 and -2 <= c_imaginaire <= 2:
+                    break
+                else:
+                    print("Les valeurs doivent être entre -2 et 2. Veuillez réessayer.")
+            except ValueError:
+                print("Entrée invalide. Veuillez entrer un nombre.")
+    elif choix == 'r':
+        c_reel, c_imaginaire = np.random.uniform(-2, 2, 2)
+    else:
+        print("Choix invalide. Utilisation de valeurs aléatoires par défaut.")
+        c_reel, c_imaginaire = np.random.uniform(-2, 2, 2)
+    return c_reel, c_imaginaire
+
+def selectionner_portion_image(largeur, hauteur, xmin, xmax, ymin, ymax):
+    choix = input("Voulez-vous arrêter ou continuer ? Tapez 'stop' pour arrêter ou 'continue' pour sélectionner une portion : ").strip().lower()
+    if choix == 'stop':
+        return None, None, None, None
+    methode_selection = input("Entrez 'manual' pour sélectionner manuellement les pixels ou 'predefined' pour choisir une partie prédéfinie : ").strip().lower()
+    if methode_selection == 'manual':
+        xmin_nouveau = float(input(f"Entrez le nouveau xmin (intervalle actuel de {xmin} à {xmax}) : "))
+        xmax_nouveau = float(input(f"Entrez le nouveau xmax (intervalle actuel de {xmin} à {xmax}) : "))
+        ymin_nouveau = float(input(f"Entrez le nouveau ymin (intervalle actuel de {ymin} à {ymax}) : "))
+        ymax_nouveau = float(input(f"Entrez le nouveau ymax (intervalle actuel de {ymin} à {ymax}) : "))
+    elif methode_selection == 'predefined':
+        partie = int(input("Sélectionnez la partie (1-9, de en haut à gauche à en bas à droite) : "))
+        gamme_x = np.linspace(xmin, xmax, 4)
+        gamme_y = np.linspace(ymin, ymax, 4)
+        col = (partie - 1) % 3
+        ligne = (partie - 1) // 3
+        xmin_nouveau, xmax_nouveau = gamme_x[col], gamme_x[col + 1]
+        ymin_nouveau, ymax_nouveau = gamme_y[ligne], gamme_y[ligne + 1]
+    else:
+        print("Sélection invalide. Sortie.")
+        return None, None, None, None
+    return xmin_nouveau, xmax_nouveau, ymin_nouveau, ymax_nouveau
+
+def sauvegarder_ensemble_julia_en_json(julia_set, nom_fichier):
+    julia_liste = julia_set.tolist()
+    with open(nom_fichier, 'w') as fichier:
+        json.dump(julia_liste, fichier)
+    print(f"Ensemble de Julia enregistré dans {nom_fichier}.")
+
+def ajuster_intensite_couleur(image, facteur):
+    facteur = max(0.0, min(facteur, 1.0))
+    image_ajustee = image * facteur
+    return image_ajustee
+
+def ensemble_julia_interactif():
+    largeur, hauteur = 200, 200
+    xmin, xmax, ymin, ymax = -1.5, 1.5, -1.5, 1.5
+    iter_max = 50
+
+    c_reel, c_imaginaire = obtenir_entree_utilisateur()
+    carte_couleurs = input("Entrez la carte de couleurs (par exemple, 'hot', 'viridis', 'plasma') : ").strip()
+
+    julia_initial = generer_ensemble_julia(largeur, hauteur, c_reel, c_imaginaire, xmin, xmax, ymin, ymax, iter_max)
+    
+    choix_intensite = input("Ajuster l'intensité des couleurs pour l'image initiale ? (o/n) : ").strip().lower()
+    if choix_intensite == 'o':
+        try:
+            facteur_intensite = float(input("Entrez le facteur de réduction de l'intensité (0-1) : "))
+            julia_initial = ajuster_intensite_couleur(julia_initial, facteur_intensite)
+        except ValueError:
+            print("Entrée invalide pour le facteur d'intensité. Continuation sans ajustement.")
+    
+    afficher_julia(julia_initial, taille=16, epsilon=.1, cmap=carte_couleurs)
+
+    xmin_nouveau, xmax_nouveau, ymin_nouveau, ymax_nouveau = selectionner_portion_image(largeur, hauteur, xmin, xmax, ymin, ymax)
+    if xmin_nouveau is None:
+        sauvegarder_ensemble_julia_en_json(julia_initial, 'ensemble_julia_initial.json')
+        return
+    
+    julia_zoom = generer_ensemble_julia(largeur, hauteur, c_reel, c_imaginaire, xmin_nouveau, xmax_nouveau, ymin_nouveau, ymax_nouveau, iter_max)
+    
+    choix_intensite = input("Ajuster l'intensité des couleurs pour l'image zoomée ? (o/n) : ").strip().lower()
+    if choix_intensite == 'o':
+        try:
+            facteur_intensite = float(input("Entrez le facteur de réduction de l'intensité (0-1) : "))
+            julia_zoom = ajuster_intensite_couleur(julia_zoom, facteur_intensite)
+        except ValueError:
+            print("Entrée invalide pour le facteur d'intensité. Continuation sans ajustement.")
+    
+    afficher_julia(julia_zoom, taille=16, epsilon=.1, cmap=carte_couleurs)
+    sauvegarder_ensemble_julia_en_json(julia_zoom, 'ensemble_julia_zoom.json')
+
+if __name__ == "__main__":
+    ensemble_julia_interactif()
