@@ -1,0 +1,68 @@
+import numpy as np
+import torch
+import time
+import matplotlib.pyplot as plt
+
+def generer_ensemble_julia_gpu(largeur, hauteur, c_reel, c_imaginaire, xmin, xmax, ymin, ymax, iter_max):
+    # Crée un maillage pour les calculs complexes sur le GPU
+    x, y = np.meshgrid(np.linspace(xmin, xmax, largeur), np.linspace(ymin, ymax, hauteur))
+    z = torch.tensor(x + 1j * y, dtype=torch.complex64).cuda()
+    image = torch.zeros(z.shape, dtype=torch.float32).cuda()
+    for i in range(iter_max):
+        masque = torch.abs(z) < 1000
+        z[masque] = z[masque] * z[masque] + complex(c_reel, c_imaginaire)
+        image += (~masque).float()
+    return image.cpu().numpy()
+
+def generer_ensemble_julia_cpu(largeur, hauteur, c_reel, c_imaginaire, xmin, xmax, ymin, ymax, iter_max):
+    # Crée un maillage pour les calculs complexes sur le CPU
+    x, y = np.meshgrid(np.linspace(xmin, xmax, largeur), np.linspace(ymin, ymax, hauteur))
+    z = torch.tensor(x + 1j * y, dtype=torch.complex64)
+    image = torch.zeros(z.shape, dtype=torch.float32)
+    for i in range(iter_max):
+        masque = torch.abs(z) < 1000
+        z[masque] = z[masque] * z[masque] + complex(c_reel, c_imaginaire)
+        image += (~masque).float()
+    return image.numpy()
+
+# Paramètres de base pour la génération de l'ensemble de Julia
+largeur, hauteur = 800, 800
+xmin, xmax, ymin, ymax = -1.5, 1.5, -1.5, 1.5
+nombre_tests = 50  # Nombre de tests aléatoires à réaliser
+iter_max_values = np.random.randint(50, 150, nombre_tests)  # Génère des valeurs aléatoires pour le nombre d'itérations
+
+# Listes pour enregistrer les temps d'exécution
+gpu_times = []
+cpu_times = []
+
+for iter_max in iter_max_values:
+    c_reel = np.random.uniform(-0.7, 0.7)
+    c_imaginaire = np.random.uniform(-0.7, 0.7)
+
+    # Mesure du temps d'exécution sur le GPU
+    start_time = time.time()
+    generer_ensemble_julia_gpu(largeur, hauteur, c_reel, c_imaginaire, xmin, xmax, ymin, ymax, iter_max)
+    gpu_time = time.time() - start_time
+    gpu_times.append(gpu_time)
+    
+    # Mesure du temps d'exécution sur le CPU
+    start_time = time.time()
+    generer_ensemble_julia_cpu(largeur, hauteur, c_reel, c_imaginaire, xmin, xmax, ymin, ymax, iter_max)
+    cpu_time = time.time() - start_time
+    cpu_times.append(cpu_time)
+
+# Calcul du temps cumulé
+temps_gpu = np.cumsum(gpu_times)
+temps_cpu = np.cumsum(cpu_times)
+
+# Création d'un tableau pour le nombre de tests
+indices_tests = np.arange(1, nombre_tests + 1)  # Crée un tableau de 1 à nombre_tests
+plt.figure(figsize=(10, 6))
+plt.plot(indices_tests, temps_gpu, 'o', color='red', label='Temps cumulé GPU')
+plt.plot(indices_tests, temps_cpu, 'o', color='blue', label='Temps cumulé CPU')
+plt.title('Temps d\'exécution cumulé en fonction du nombre de tests')
+plt.xlabel('Nombre de tests')
+plt.ylabel('Temps d\'exécution cumulé (s)')
+plt.legend()
+plt.grid(True)
+plt.show()
